@@ -1,0 +1,57 @@
+/* Inspired Dark Theme Variables */
+:root {
+  /* Colors */
+  --color-bg-primary: #030712;
+  /* Deep dark blue/black */
+  --color-bg-secondary: #0f172a;
+
+  /* Brand Colors from Image */
+  --color-brand-cyan: #22d3ee;
+  --color-brand-cyan-hover: #06b6d4;
+  --color-brand-pink: #d946ef;
+  --color-brand-blue: #3b82f6;
+
+  --color-text-main: #ffffff;
+  --color-text-muted: #cbd5e1;
+  /* Significantly brighter for readability (Slate-300) */
+
+  --color-border: rgba(255, 255, 255, 0.15);
+  /* Slightly more visible border */
+  --glass-bg: #111827;
+  /* Solid dark background instead of low opacity glass to ensure text contrast */
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+
+  /* Font */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-main);
+  font-family: var(--font-family-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  /* Subtle grid pattern */
+  background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-cyan);
+}
