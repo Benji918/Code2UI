@@ -1,64 +1,234 @@
-from typing import List
+"""
+Prompt Engineering for Code2UI.
+
+Strategy:
+1. PERSONA: Senior Frontend Engineer persona for authoritative code
+2. CONTEXT RANKING: Priority-based context injection as per implementation.md
+3. CHAIN OF THOUGHT: Structured reasoning for component generation
+4. STRUCTURED OUTPUT: JSON output for programmatic parsing
+"""
+from typing import Optional
+import json
+
 
 # ==============================================================================
-# PROMPT ENGINEERING STRATEGY:
-# 1. PERSONA: Adoption of a Senior Frontend Engineer persona for authoritative code.
-# 2. FEW-SHOT PROMPTING: Providing a "Golden Example" to guide style and structure.
-# 3. CHAIN OF THOUGHT: Implicitly encouraging the LLM to think about imports, then template, then logic.
-# 4. STRUCTURED OUTPUT: Enforcing JSON output for programmatic validation.
+# SYSTEM PROMPTS
 # ==============================================================================
 
-MISTHAL_SYSTEM_PROMPT = """
-You are an expert Frontend Engineer complying with strict SOLID principles.
-Your task is to generate a Vue 3 (Composition API) component based on a provided OpenAPI 3.0 Endpoint definition.
+SYSTEM_PROMPT = """You are an expert Full-Stack Engineer specializing in Vue.js 3 frontend development.
+Your task is to generate a complete, functional Vue.js application that serves as an API testing interface.
 
-### TECH STACK
-- Framework: Vue.js 3 (Composition API with <script setup>)
-- Styling: Bootstrap 5 (Standard classes, no custom CSS unless absolutely necessary)
-- Icons: Bootstrap Icons (bi-*)
-- HTTP Client: Fetch API (native)
+### YOUR ROLE
+You are building a production-grade UI that allows developers to:
+- View all available API endpoints
+- Make requests to each endpoint with proper form inputs
+- View responses in a formatted manner
+- Handle loading states and errors gracefully
 
-### INPUT CONTEXT
-You will be given:
-1. An OpenAPI Path/Endpoint definition (Method, URL, Parameters, RequestBody, Responses).
-2. Domain Context (extracted from the spec description).
+### TECH STACK (STRICT REQUIREMENTS)
+- Framework: Vue.js 3 with Composition API (<script setup>)
+- Styling: Bootstrap 5 with custom CSS variables for theming
+- Icons: Bootstrap Icons (bi-* classes)
+- HTTP Client: Native Fetch API
+- State: Vue 3 reactive refs (no external state management)
 
 ### OUTPUT FORMAT
-You must return a raw JSON object (no markdown formatting) with the following structure:
+Return a valid JSON object with this structure:
 {
-  "filename": "ComponentName.vue",
-  "rationale": "Brief explanation of design choices...",
-  "code": "Full content of the .vue file..."
+  "project_name": "Generated project name",
+  "components": [
+    {
+      "filename": "ComponentName.vue",
+      "rationale": "Brief explanation of design choices",
+      "code": "Complete .vue file content"
+    }
+  ],
+  "app_entry": "Content of main App.vue that renders all components",
+  "router_config": "Vue Router setup if needed",
+  "styles": "Global CSS for the application",
+  "api_client": "API client utility code"
 }
 
-### GOLDEN EXAMPLE (Use this coding style)
-Input: GET /users (List users)
-Response:
-{
-  "filename": "UserList.vue",
-  "rationale": "Uses a responsive table with loading states and error handling.",
-  "code": "<script setup>\\nimport { ref, onMounted } from 'vue'\\n\\nconst users = ref([])\\nconst loading = ref(false)\\nconst error = ref(null)\\n\\nconst fetchUsers = async () => {\\n  loading.value = true\\n  try {\\n    const res = await fetch('/api/users')\\n    if (!res.ok) throw new Error('Failed')\\n    users.value = await res.json()\\n  } catch (err) {\\n    error.value = err.message\\n  } finally {\\n    loading.value = false\\n  }\\n}\\n\\nonMounted(fetchUsers)\\n</script>\\n\\n<template>\\n  <div class=\"card border-0 shadow-sm\">\\n    <div class=\"card-body\">\\n      <h5 class=\"card-title mb-4\">Users</h5>\\n      <div v-if=\"loading\" class=\"text-center p-5\">\\n        <div class=\"spinner-border text-primary\"></div>\\n      </div>\\n      <div v-else-if=\"error\" class=\"alert alert-danger\">{{ error }}</div>\\n      <div v-else class=\"table-responsive\">\\n        <table class=\"table align-middle\">\\n          <thead class=\"table-light\"><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>\\n          <tbody>\\n            <tr v-for=\"u in users\" :key=\"u.id\">\\n              <td>{{ u.name }}</td>\\n              <td>{{ u.email }}</td>\\n              <td><span class=\"badge bg-secondary\">{{ u.role }}</span></td>\\n            </tr>\\n          </tbody>\\n        </table>\\n      </div>\\n    </div>\\n  </div>\\n</template>"
-}
+### CODE QUALITY REQUIREMENTS
+1. ALWAYS implement loading, error, and empty states
+2. Use semantic HTML and ARIA attributes for accessibility
+3. Implement proper form validation based on API schemas
+4. Handle all HTTP methods correctly (GET, POST, PUT, DELETE, PATCH)
+5. Display response data in readable, formatted tables/cards
+6. Include error boundaries and user-friendly error messages
 
-### VALIDATION RULES
-1. ALWAYS handle 'loading' and 'error' states.
-2. ALWAYS use Bootstrap 'form-control', 'btn', 'card', 'table' classes.
-3. If the endpoint requires Auth (Bearer/ApiKey), add a placeholder header in the fetch call.
-4. Input forms MUST match the 'requestBody' schema exactly.
-"""
+### DESIGN REQUIREMENTS
+1. Use a professional, dark-themed design
+2. Consistent spacing and typography
+3. Form inputs must match OpenAPI schema types (string, integer, boolean, etc.)
+4. Required fields should be clearly marked
+5. Interactive elements must have hover/focus states"""
 
-def generate_user_prompt(endpoint_path: str, method: str, spec_fragment: dict) -> str:
+
+# ==============================================================================
+# CONTEXT TEMPLATES (Priority-Based as per implementation.md)
+# ==============================================================================
+
+def build_generation_prompt(
+    openapi_spec: dict,
+    diagrams_context: Optional[str] = None,
+    docs_context: Optional[str] = None,
+    project_name: str = "Generated API Client"
+) -> str:
     """
-    Constructs the dynamic prompt for a specific endpoint using Context Injection.
-    """
-    return f"""
-    GENERATE UI FOR:
-    Endpoint: {method.upper()} {endpoint_path}
-    Spec Definition:
-    {spec_fragment}
+    Constructs the generation prompt with priority-ranked context.
     
-    INSTRUCTIONS:
-    - Analyze the 'parameters' to create filter inputs (if GET) or form inputs (if POST/PUT).
-    - Analyze 'requestBody' to build the correct form fields with validation attributes (required, min, max).
-    - Analyze 'responses' to know what data to display (200 OK) or how to handle errors.
+    Priority 1 (CRITICAL): OpenAPI Specification - Source of truth
+    Priority 2 (HIGH): Architecture Diagrams - Structural context
+    Priority 3 (MEDIUM): Documentation - Supplementary context
     """
+    
+    prompt_parts = []
+    
+    # Header
+    prompt_parts.append(f"# Generate a Vue.js API Testing Interface\n")
+    prompt_parts.append(f"**Project Name**: {project_name}\n\n")
+    
+    # Priority 1: OpenAPI Spec (CRITICAL)
+    prompt_parts.append("=" * 60)
+    prompt_parts.append("\n## [PRIORITY 1 - CRITICAL] OpenAPI Specification")
+    prompt_parts.append("This is the PRIMARY source of truth. Generate UI for ALL endpoints defined here.\n")
+    
+    # Format spec information
+    spec_info = format_openapi_for_prompt(openapi_spec)
+    prompt_parts.append(spec_info)
+    
+    # Priority 2: Diagrams (HIGH) - if provided
+    if diagrams_context:
+        prompt_parts.append("\n" + "=" * 60)
+        prompt_parts.append("\n## [PRIORITY 2 - HIGH] Architecture Diagrams Context")
+        prompt_parts.append("Use this to understand system flow and relationships.\n")
+        prompt_parts.append(diagrams_context)
+    
+    # Priority 3: Documentation (MEDIUM) - if provided
+    if docs_context:
+        prompt_parts.append("\n" + "=" * 60)
+        prompt_parts.append("\n## [PRIORITY 3 - MEDIUM] Supplementary Documentation")
+        prompt_parts.append("Additional context for business logic.\n")
+        prompt_parts.append(docs_context)
+    
+    # Final Instructions
+    prompt_parts.append("\n" + "=" * 60)
+    prompt_parts.append("\n## GENERATION INSTRUCTIONS")
+    prompt_parts.append("""
+Based on the OpenAPI specification above, generate:
+
+1. **Individual Endpoint Components**: One component per endpoint/resource
+   - Forms for POST/PUT/PATCH requests matching the requestBody schema
+   - Tables/cards for displaying GET response data
+   - Delete confirmation dialogs
+   
+2. **Main App.vue**: A dashboard that lists all endpoints with navigation
+
+3. **API Client**: A utility for making HTTP requests with proper error handling
+
+4. **Global Styles**: Dark theme CSS matching the Code2UI aesthetic
+
+IMPORTANT: 
+- Parse the 'paths' object to identify ALL endpoints
+- Use 'components/schemas' to understand request/response structures
+- Generate forms with appropriate input types for each schema property
+- The generated UI should be FUNCTIONAL - not just a mockup
+
+Return the complete JSON response with all generated artifacts.""")
+    
+    return "\n".join(prompt_parts)
+
+
+def format_openapi_for_prompt(spec: dict) -> str:
+    """
+    Formats OpenAPI spec into a readable format for the LLM.
+    Extracts key information while keeping the structure clear.
+    """
+    parts = []
+    
+    # API Info
+    info = spec.get('info', {})
+    parts.append(f"**API Title**: {info.get('title', 'Unknown')}")
+    parts.append(f"**Version**: {info.get('version', '1.0.0')}")
+    parts.append(f"**Description**: {info.get('description', 'No description')}\n")
+    
+    # Servers
+    servers = spec.get('servers', [])
+    if servers:
+        parts.append("**Base URLs**:")
+        for server in servers:
+            parts.append(f"  - {server.get('url', '/')}")
+        parts.append("")
+    
+    # Endpoints
+    paths = spec.get('paths', {})
+    parts.append("### API Endpoints:\n")
+    
+    for path, methods in paths.items():
+        parts.append(f"**Endpoint: `{path}`**")
+        
+        for method, details in methods.items():
+            if method.lower() in ['get', 'post', 'put', 'delete', 'patch']:
+                parts.append(f"\n  **{method.upper()}**")
+                parts.append(f"  - Summary: {details.get('summary', 'No summary')}")
+                parts.append(f"  - Operation ID: {details.get('operationId', 'N/A')}")
+                
+                # Parameters
+                params = details.get('parameters', [])
+                if params:
+                    parts.append("  - Parameters:")
+                    for p in params:
+                        required = "(required)" if p.get('required') else "(optional)"
+                        parts.append(f"    - {p.get('name')}: {p.get('schema', {}).get('type', 'any')} {required}")
+                
+                # Request Body
+                request_body = details.get('requestBody', {})
+                if request_body:
+                    content = request_body.get('content', {})
+                    json_content = content.get('application/json', {})
+                    schema = json_content.get('schema', {})
+                    if schema:
+                        parts.append(f"  - Request Body Schema: {json.dumps(schema, indent=4)}")
+                
+                # Responses
+                responses = details.get('responses', {})
+                if responses:
+                    parts.append("  - Responses:")
+                    for code, resp in responses.items():
+                        parts.append(f"    - {code}: {resp.get('description', 'No description')}")
+        
+        parts.append("")
+    
+    # Schemas
+    components = spec.get('components', {})
+    schemas = components.get('schemas', {})
+    if schemas:
+        parts.append("\n### Data Schemas:\n")
+        for name, schema in schemas.items():
+            parts.append(f"**{name}**:")
+            parts.append(f"```json\n{json.dumps(schema, indent=2)}\n```\n")
+    
+    return "\n".join(parts)
+
+
+# ==============================================================================
+# COMPONENT-SPECIFIC PROMPTS
+# ==============================================================================
+
+def generate_endpoint_component_prompt(endpoint: str, method: str, details: dict) -> str:
+    """Generate a focused prompt for a single endpoint component."""
+    return f"""
+Generate a Vue 3 component for the following API endpoint:
+
+**Endpoint**: {method.upper()} {endpoint}
+**Details**:
+{json.dumps(details, indent=2)}
+
+Requirements:
+1. Use <script setup> syntax
+2. Implement proper form handling for {method.upper()} requests
+3. Display results in a clean table/card layout
+4. Handle loading and error states
+5. Use Bootstrap 5 classes for styling
+"""
