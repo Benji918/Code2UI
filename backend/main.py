@@ -6,7 +6,7 @@ Production-grade API for transforming OpenAPI specifications into functional Vue
 Features:
 - Multi-input ingestion (OpenAPI spec, diagrams, documentation)
 - Context ranking as per implementation.md
-- Mistral AI integration for UI generation
+- Ollama (DeepSeek-R1) integration for UI generation
 - Async processing with status tracking
 """
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
@@ -33,7 +33,7 @@ from models import (
     GeneratedUI,
     HealthResponse
 )
-from services.llm_service import MistralService
+from services.llm_service import LLMService
 from services.tasks import generate_ui_task
 from celery.result import AsyncResult
 
@@ -66,8 +66,8 @@ app = FastAPI(
 
 # CORS Configuration - Allow Vue frontend origins
 ALLOWED_ORIGINS = [
-    "http://localhost:5173",    # Vite dev server
-    "http://localhost:3000",    # Alternative dev port
+    "http://localhost:5173",  
+    "http://localhost:3000",   
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
 ]
@@ -80,10 +80,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services (API key loaded from .env automatically)
-llm_service = MistralService()
 
-# In-memory storage for generation jobs (use Redis/DB in production)
+llm_service = LLMService()
+
 generation_jobs: dict[str, GenerationStatus] = {}
 
 
@@ -243,7 +242,7 @@ async def generate_ui(
         docs_context = await extract_doc_context(docs) if docs else None
         logger.info(f"[{generation_id}] Docs context: {len(docs)} files")
         
-        # 4. Generate UI using Mistral AI
+        # 4. Generate UI using Ollama (DeepSeek-R1)
         logger.info(f"[{generation_id}] Starting UI generation for project: {project_name}")
         
         generated_ui = await llm_service.generate_ui(

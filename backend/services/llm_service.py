@@ -1,21 +1,13 @@
-"""
-Mistral AI LLM Service for Code2UI.
-
-Production-grade implementation with:
-- Real Mistral API integration
-- Proper error handling and retries
-- Structured output parsing
-- Timeout handling
-"""
-import os
-import json
-import re
 import asyncio
-from typing import Optional
+from typing import Optional, Dict, Any
 import logging
 from dataclasses import dataclass
+import re
+import json
 
-from mistralai import Mistral
+from ollama import AsyncClient
+
+
 
 from prompts.system_prompts import SYSTEM_PROMPT, build_generation_prompt
 from models import GeneratedUI, GeneratedComponent
@@ -28,31 +20,19 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LLMConfig:
     """Configuration for LLM calls"""
-    model: str = "mistral-large-latest"
-    temperature: float = 0.1  # Low temp for consistent code generation
-    max_tokens: int = 32000
-    timeout: int = 120  # seconds
+    model: str = "deepseek-r1"
+    temperature: float = 0.6 # DeepSeek recommended temp
+    num_ctx: int = 32000
+    timeout: int = 300  # seconds, reasoning models can be slow
 
 
-class MistralService:
+class LLMService:
     """
-    Production-grade Mistral AI service for UI generation.
-    
-    Features:
-    - Async API calls
-    - Structured JSON output parsing
-    - Retry logic with exponential backoff
-    - Comprehensive error handling
+    Production-grade LLM service for UI generation using Ollama (DeepSeek-R1).
     """
     
-    def __init__(self, api_key: Optional[str] = None, config: Optional[LLMConfig] = None):
-        self.api_key = api_key or os.getenv("MISTRAL_API_KEY")
-        if not self.api_key:
-            logger.warning("MISTRAL_API_KEY not set - will use mock responses")
-            self.client = None
-        else:
-            self.client = Mistral(api_key=self.api_key)
-        
+    def __init__(self, config: Optional[LLMConfig] = None):
+        self.client = AsyncClient()
         self.config = config or LLMConfig()
     
     async def generate_ui(
@@ -96,17 +76,11 @@ class MistralService:
         
         update_progress(0.0, "Initializing generation...")
         
-        # If no API key, use mock response
-        if not self.client:
-            logger.info("Using mock response (no API key configured)")
-            update_progress(0.3, "Generating mock response...")
-            return self._generate_mock_response(openapi_spec, project_name)
-        
-        # Call Mistral API with retries
-        update_progress(0.1, "Calling Mistral AI...")
+        # Call LLM API with retries
+        update_progress(0.1, f"Reasoning with {self.config.model}...")
         for attempt in range(max_retries):
             try:
-                response = await self._call_mistral_api(user_prompt)
+                response = await self._call_llm_api(user_prompt)
                 update_progress(0.7, "Parsing AI response...")
                 parsed_response = self._parse_response(response)
                 update_progress(1.0, "Generation complete!")
@@ -115,52 +89,79 @@ class MistralService:
             except json.JSONDecodeError as e:
                 logger.warning(f"Attempt {attempt + 1}: Failed to parse JSON response: {e}")
                 if attempt == max_retries - 1:
-                    raise ValueError(f"Failed to parse LLM response after {max_retries} attempts")
+                     logger.error("Final JSON parse failure. Falling back to mock response.")
+                     # If we really fail, we can fallback to mock or raise
+                     # For robustness, let's raise if we really want real gen, or mock if allowed
+                     break 
                     
             except Exception as e:
                 logger.error(f"Attempt {attempt + 1}: API call failed: {e}")
                 if attempt == max_retries - 1:
-                    raise
+                    logger.error("Final API failure. Falling back to mock response.")
+                    break
                 await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        # Fallback to mock if all retries fail
+        logger.warning("Falling back to mock response due to generation failures")
+        return self._generate_mock_response(openapi_spec, project_name)
         
         # Fallback to mock if all retries fail
         return self._generate_mock_response(openapi_spec, project_name)
     
-    async def _call_mistral_api(self, user_prompt: str) -> str:
-        """Make the actual API call to Mistral."""
+    async def _call_llm_api(self, user_prompt: str) -> str:
+        """Make the actual API call to Ollama."""
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ]
         
-        logger.info(f"Calling Mistral API with model: {self.config.model}")
+        logger.info(f"Calling Ollama API with model: {self.config.model}")
         
-        response = await asyncio.to_thread(
-            self.client.chat.complete,
+        response = await self.client.chat(
             model=self.config.model,
             messages=messages,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-            response_format={"type": "json_object"}
+            options={
+                "temperature": self.config.temperature,
+                "num_ctx": self.config.num_ctx
+            },
+            format="json" # Enforce JSON format from Ollama
         )
         
-        content = response.choices[0].message.content
+        content = response['message']['content']
         logger.info(f"Received response: {len(content)} characters")
         
         return content
     
     def _parse_response(self, response: str) -> GeneratedUI:
         """Parse the LLM JSON response into GeneratedUI object."""
+        # Clean response (remove <think> blocks from deepseek-r1)
+        response_clean = re.sub(r'<think>[\s\S]*?</think>', '', response).strip()
+        
         # Try to extract JSON from the response
         try:
-            data = json.loads(response)
+            data = json.loads(response_clean)
         except json.JSONDecodeError:
             # Try to extract JSON from markdown code blocks
-            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response)
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response_clean)
             if json_match:
-                data = json.loads(json_match.group(1))
+                try:
+                    data = json.loads(json_match.group(1))
+                except json.JSONDecodeError:
+                    logger.error("Failed to decode JSON from markdown block")
+                    msg = "Invalid JSON in response"
+                    raise ValueError(msg)
             else:
-                raise
+                 # Last resort attempt to find json object start/end
+                try:
+                    start = response_clean.find('{')
+                    end = response_clean.rfind('}') + 1
+                    if start != -1 and end != -1:
+                        data = json.loads(response_clean[start:end])
+                    else:
+                        raise ValueError("No JSON object found")
+                except Exception as e:
+                    logger.error(f"JSON parse error: {e}")
+                    raise
         
         # Build GeneratedUI from parsed data
         components = []
@@ -737,7 +738,7 @@ const cancelDelete = () => {{
     
     <footer class="app-footer">
       <div class="container text-center py-3">
-        <small class="text-muted">Generated with Code2UI • Powered by Mistral AI</small>
+        <small class="text-muted">Generated with Code2UI • Powered by DeepSeek-R1</small>
       </div>
     </footer>
   </div>

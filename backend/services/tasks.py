@@ -3,7 +3,7 @@ Celery tasks for background processing.
 """
 from celery import Task
 from celery_app import celery_app
-from services.llm_service import MistralService
+from services.llm_service import LLMService
 import json
 import logging
 
@@ -43,7 +43,7 @@ def generate_ui_task(
         )
         
         # Initialize LLM service
-        llm_service = MistralService()
+        llm_service = LLMService()
         
         # Update: Context prepared
         self.update_state(
