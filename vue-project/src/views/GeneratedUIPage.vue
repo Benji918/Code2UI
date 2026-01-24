@@ -233,11 +233,13 @@ const downloadAll = () => {
                   v-if="selectedComponent >= 0 && currentComponent"
                   :code="currentComponent.code"
                   :filename="currentComponent.filename"
+                  :project-context="generatedUI"
                 />
                 <LivePreview 
                   v-else-if="selectedComponent === -1"
                   :code="generatedUI.app_entry"
                   filename="App.vue"
+                  :project-context="generatedUI"
                 />
                 <div v-else class="no-preview text-center py-5">
                   <i class="bi bi-eye-slash display-4 text-muted"></i>

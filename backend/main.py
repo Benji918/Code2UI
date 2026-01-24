@@ -494,14 +494,26 @@ async def stream_task_progress(request: Request, task_id: str):
             
             elif state == 'SUCCESS':
                 result = task.result
-                yield {
-                    "event": "complete",
-                    "data": json.dumps({
-                        "status": "completed",
-                        "progress": 100,
-                        "result": result.get('result')
-                    })
-                }
+                
+                # Check for logical error returned by task
+                if isinstance(result, dict) and result.get('status') == 'error':
+                     yield {
+                        "event": "error",
+                        "data": json.dumps({
+                            "status": "failed",
+                            "progress": 0,
+                            "message": result.get('message', 'Unknown error')
+                        })
+                    }
+                else:
+                    yield {
+                        "event": "complete",
+                        "data": json.dumps({
+                            "status": "completed",
+                            "progress": 100,
+                            "result": result.get('result')
+                        })
+                    }
                 break
             
             elif state == 'FAILURE':

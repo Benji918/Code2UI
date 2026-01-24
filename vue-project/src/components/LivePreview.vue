@@ -1,63 +1,53 @@
 <script setup>
 /**
- * LivePreview.vue - Render generated Vue components in an iframe sandbox
+ * LivePreview.vue - Render generated Vue components using vue3-sfc-loader
  * 
- * This component creates an isolated environment to preview generated code.
+ * This allows full Vue functionality (script setup, reactivity, imports) 
+ * inside a secure iframe sandbox. Supports multi-component imports.
  */
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 
 const props = defineProps({
   code: {
-    type: String,
+    type: String, // The entry code to render
     required: true
   },
   filename: {
     type: String,
     default: 'Component.vue'
+  },
+  projectContext: {
+    type: Object, // The entire generatedUI object containing all components
+    default: () => ({ components: [] })
   }
 })
 
 const iframeRef = ref(null)
 const previewError = ref(null)
 
-// Helper to build the preview document
-const buildPreviewDocument = () => {
-  // For Vue SFC, we can't directly render without compilation
-  // Instead, show a styled representation of what the component would look like
+const buildPreviewDocument = (entryCode) => {
+  // Escape backticks for template string injection
+  const escapedEntryCode = entryCode.replace(/`/g, '\\`').replace(/\${/g, '\\${')
   
-  // Extract template section from Vue SFC
-  const templateRegex = /<template>([\s\S]*?)<\/template>/
-  const templateMatch = props.code.match(templateRegex)
-  const templateContent = templateMatch ? templateMatch[1] : '<p>No template found</p>'
+  // Serialize the project context to pass it to the iframe
+  const contextJson = JSON.stringify(props.projectContext).replace(/`/g, '\\`').replace(/<\/script>/g, '<\\/script>')
   
-  // Extract style section
-  const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/
-  const styleMatch = props.code.match(styleRegex)
-  const styleContent = styleMatch ? styleMatch[1] : ''
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  // Build HTML parts separately to avoid Vue compiler issues
-  const doctype = '<!DOCTYPE html>'
-  const htmlOpen = '<html>'
-  const htmlClose = '<' + '/html>'
-  const headOpen = '<head>'
-  const headClose = '<' + '/head>'
-  const styleOpen = '<style>'
-  const styleClose = '<' + '/style>'
-  const bodyOpen = '<body>'
-  const bodyClose = '<' + '/body>'
-  const scriptOpen = '<script>'
-  const scriptClose = '<' + '/script>'
+  <!-- Bootstrap 5 & Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   
-  return [
-    doctype,
-    htmlOpen,
-    headOpen,
-    '<meta charset="UTF-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-    '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">',
-    '<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">',
-    styleOpen,
-    `:root {
+  <!-- Vue 3 & SFC Loader -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"><\/script>
+  <script src="https://cdn.jsdelivr.net/npm/vue3-sfc-loader/dist/vue3-sfc-loader.js"><\/script>
+  
+  <style>
+    :root {
       --color-bg-primary: #030712;
       --color-bg-secondary: #0f172a;
       --color-brand-cyan: #22d3ee;
@@ -67,75 +57,116 @@ const buildPreviewDocument = () => {
       --glass-border: rgba(255, 255, 255, 0.1);
     }
     
-    * { box-sizing: border-box; }
-    
     body {
-      margin: 0;
-      padding: 1.5rem;
       background: var(--color-bg-primary);
       color: var(--color-text-main);
-      font-family: 'Inter', -apple-system, sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      padding: 1rem;
       min-height: 100vh;
     }
     
+    /* Code2UI Base Styles injected here for consistency */
     .btn-primary {
-      background: var(--color-brand-cyan);
-      border: none;
+      background-color: var(--color-brand-cyan);
+      border-color: var(--color-brand-cyan);
+      color: #000;
+      font-weight: 500;
+    }
+    .btn-primary:hover {
+      background-color: #06b6d4;
+      border-color: #06b6d4;
       color: #000;
     }
     
-    .table-dark { --bs-table-bg: transparent; }
-    
-    .form-control {
-      background: rgba(255,255,255,0.05);
+    .form-control, .form-select {
+      background-color: var(--glass-bg);
       border-color: var(--glass-border);
-      color: #fff;
+      color: var(--color-text-main);
     }
-    
-    .form-control:focus {
-      background: rgba(255,255,255,0.1);
+    .form-control:focus, .form-select:focus {
+      background-color: var(--glass-bg);
       border-color: var(--color-brand-cyan);
-      color: #fff;
-      box-shadow: 0 0 0 0.2rem rgba(34, 211, 238, 0.25);
+      color: var(--color-text-main);
+      box-shadow: 0 0 0 0.25rem rgba(34, 211, 238, 0.25);
     }
     
     .card {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
+      background-color: var(--glass-bg);
+      border-color: var(--glass-border);
     }
     
-    ${styleContent}`,
-    styleClose,
-    headClose,
-    bodyOpen,
-    '<div class="preview-wrapper">',
-    templateContent,
-    '</div>',
-    scriptOpen,
-    `// Mock Vue reactive data for static preview
-    document.querySelectorAll('[v-if]').forEach(function(el) {});
-    document.querySelectorAll('[v-for]').forEach(function(el) { el.style.display = 'block'; });`,
-    scriptClose,
-    bodyClose,
-    htmlClose
-  ].join('\n')
+    .table-dark {
+      --bs-table-bg: transparent;
+      color: var(--color-text-main);
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  
+  <script>
+    const { loadModule } = window['vue3-sfc-loader'];
+    
+    // Injected project context
+    const projectContext = JSON.parse(\`${contextJson}\`);
+    const entryFilename = '${props.filename}';
+    const entryCode = \`${escapedEntryCode}\`;
+    
+    const options = {
+      moduleCache: {
+        vue: window.Vue
+      },
+      async getFile(url) {
+        // Normalizing path
+        const filename = url.replace('./', '').replace('/', '');
+        
+        // 1. Check if it's the entry file
+        if (filename === entryFilename) {
+          return entryCode;
+        }
+        
+        // 2. Check components list
+        const comp = projectContext.components.find(c => c.filename === filename);
+        if (comp) {
+          return comp.code;
+        }
+        
+        // 3. Check extra files
+        if (filename === 'App.vue') return projectContext.app_entry;
+        if (filename === 'apiClient.js') return projectContext.api_client;
+        
+        return Promise.reject(new Error('File not found: ' + url));
+      },
+      addStyle(textContent) {
+        const style = document.createElement('style');
+        style.textContent = textContent;
+        document.head.appendChild(style);
+      },
+      log(type, ...args) {
+        console.log(type, ...args);
+      }
+    }
+    
+    const app = Vue.createApp(
+      Vue.defineAsyncComponent(() => loadModule('./' + entryFilename, options))
+    );
+    
+    app.mount('#app');
+    
+    window.onerror = function(message) {
+      window.parent.postMessage({ type: 'preview-error', message }, '*');
+    };
+  <\/script>
+</body>
+</html>`
 }
 
-watch(() => props.code, () => {
-  updateIframe()
-})
-
-onMounted(() => {
-  updateIframe()
-})
-
 const updateIframe = () => {
-  if (iframeRef.value) {
+  if (iframeRef.value && props.code) {
     try {
       const doc = iframeRef.value.contentDocument || iframeRef.value.contentWindow.document
-      const htmlContent = buildPreviewDocument()
       doc.open()
-      doc.write(htmlContent)
+      doc.write(buildPreviewDocument(props.code))
       doc.close()
       previewError.value = null
     } catch (e) {
@@ -144,29 +175,41 @@ const updateIframe = () => {
     }
   }
 }
+
+watch(() => props.code, updateIframe)
+
+onMounted(() => {
+  updateIframe()
+  // Listen for errors from iframe
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'preview-error') {
+      previewError.value = 'Runtime Error: ' + e.data.message
+    }
+  })
+})
 </script>
 
 <template>
   <div class="live-preview">
     <div class="preview-header">
       <div class="d-flex align-items-center gap-2">
-        <i class="bi bi-eye text-success"></i>
+        <i class="bi bi-play-circle-fill text-success"></i>
         <span class="fw-semibold">Live Preview</span>
         <span class="badge bg-secondary">{{ filename }}</span>
       </div>
-      <small class="text-muted">Static HTML preview (Vue directives not evaluated)</small>
+      <small class="text-white-50">Fully interactive Vue 3 environment</small>
     </div>
     
     <div class="preview-frame-wrapper">
       <div v-if="previewError" class="preview-error">
-        <i class="bi bi-exclamation-triangle text-warning me-2"></i>
+        <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>
         {{ previewError }}
       </div>
       
       <iframe
         ref="iframeRef"
         class="preview-frame"
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
         title="Component Preview"
       ></iframe>
     </div>
@@ -197,6 +240,7 @@ const updateIframe = () => {
   flex: 1;
   position: relative;
   min-height: 400px;
+  background: #000;
 }
 
 .preview-frame {
@@ -211,14 +255,15 @@ const updateIframe = () => {
 
 .preview-error {
   position: absolute;
-  top: 50%;
+  top: 1rem;
   left: 50%;
-  transform: translate(-50%, -50%);
-  padding: 1rem 2rem;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  transform: translateX(-50%);
+  padding: 0.75rem 1.5rem;
+  background: rgba(220, 38, 38, 0.2);
+  border: 1px solid #dc2626;
   border-radius: 8px;
   color: #fca5a5;
   z-index: 10;
+  white-space: nowrap;
 }
 </style>

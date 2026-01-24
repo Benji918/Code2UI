@@ -104,8 +104,8 @@ def generate_ui_task(
         
     except Exception as e:
         logger.error(f"Task failed: {e}")
-        self.update_state(
-            state='FAILURE',
-            meta={'current': 0, 'total': 100, 'status': f'Error: {str(e)}'}
-        )
-        raise
+        # Return error state instead of raising to avoid JSON serialization issues
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
